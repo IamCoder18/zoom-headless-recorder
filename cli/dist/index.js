@@ -21,7 +21,8 @@ const defaultConfig = {
     vncPort: 6080,
     meetingDuration: 3600,
     startBuffer: 300, // 5 minutes
-    stopBuffer: 600 // 10 minutes
+    stopBuffer: 600, // 10 minutes
+    leaveEarly: 0 // leave exactly at duration by default
 };
 // Utility functions
 function ensureConfig() {
@@ -165,7 +166,7 @@ docker run --rm -it \\
 ╚═══════════════════════════════════════════════════════╝
   `));
 }
-async function cmdRun(url, password, duration, startBuffer, stopBuffer) {
+async function cmdRun(url, password, duration, startBuffer, stopBuffer, leaveEarly) {
     const config = ensureConfig();
     const imageName = `${config.registry}/zoom-recorder:latest`;
     const containerName = 'zoom-recorder';
@@ -173,11 +174,12 @@ async function cmdRun(url, password, duration, startBuffer, stopBuffer) {
     const finalStartBuffer = startBuffer ?? config.startBuffer;
     const finalStopBuffer = stopBuffer ?? config.stopBuffer;
     const finalDuration = duration ?? config.meetingDuration;
+    const finalLeaveEarly = leaveEarly ?? config.leaveEarly;
     // Non-interactive: require args
     if (!url) {
-        console.log(chalk_1.default.yellow('  Usage: zoom-rec run <meeting-url> [password] [duration] [start-buffer] [stop-buffer]'));
+        console.log(chalk_1.default.yellow('  Usage: zoom-rec run <meeting-url> [password] [duration] [start] [stop] [leave-early]'));
         console.log(chalk_1.default.gray('  Or run interactively: zoom-rec run'));
-        console.log(chalk_1.default.gray('  Example: zoom-rec run https://zoom.us/j/123 3600 300 600'));
+        console.log(chalk_1.default.gray('  Example: zoom-rec run https://zoom.us/j/123 3600 300 600 0'));
         return;
     }
     console.log(chalk_1.default.cyan(`
@@ -185,12 +187,15 @@ async function cmdRun(url, password, duration, startBuffer, stopBuffer) {
 ║               Starting Zoom Recorder                   ║
 ╚═══════════════════════════════════════════════════════╝
   `));
+    const totalRuntime = finalDuration + finalStopBuffer;
+    const leaveAt = finalDuration - finalLeaveEarly;
     console.log(chalk_1.default.gray(`
   Meeting: ${url}
   Start early: ${finalStartBuffer}s
   Duration: ${finalDuration}s
-  Stop buffer: ${finalStopBuffer}s
-  Total runtime: ${finalDuration + finalStopBuffer}s
+  Leave meeting at: ${leaveAt}s (${finalLeaveEarly}s early)
+  Record extra: ${finalStopBuffer}s
+  Total runtime: ${totalRuntime}s
   `));
     const spinner = (0, ora_1.default)('Starting container...').start();
     // Stop existing
@@ -204,7 +209,8 @@ async function cmdRun(url, password, duration, startBuffer, stopBuffer) {
         `-e`, `ZOOM_MEETING_URL=${url}`,
         `-e`, `ZOOM_MEETING_DURATION=${finalDuration}`,
         `-e`, `ZOOM_START_BUFFER=${finalStartBuffer}`,
-        `-e`, `ZOOM_STOP_BUFFER=${finalStopBuffer}`
+        `-e`, `ZOOM_STOP_BUFFER=${finalStopBuffer}`,
+        `-e`, `ZOOM_LEAVE_EARLY=${finalLeaveEarly}`
     ];
     if (password) {
         envVars.push(`-e`, `ZOOM_PASSWORD=${password}`);
@@ -294,6 +300,13 @@ async function cmdSchedule(when, url, password) {
                 message: 'Extra recording after (seconds):',
                 default: '600',
                 validate: (v) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be a positive number'
+            },
+            {
+                type: 'input',
+                name: 'leaveEarly',
+                message: 'Leave meeting early (seconds before end, 0=exact):',
+                default: '0',
+                validate: (v) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be 0 or positive'
             }
         ]);
         // Create systemd unit
@@ -301,6 +314,7 @@ async function cmdSchedule(when, url, password) {
         const durationSec = parseInt(answers.duration) * 60;
         const startBufferSec = parseInt(answers.startBuffer);
         const stopBufferSec = parseInt(answers.stopBuffer);
+        const leaveEarlySec = parseInt(answers.leaveEarly);
         console.log(chalk_1.default.yellow('\n  Creating systemd timer...'));
         const serviceContent = `[Unit]
 Description=Zoom Meeting Recorder
@@ -308,7 +322,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOOM_MEETING_URL="${answers.meetingUrl}" -e ZOOM_PASSWORD="${answers.password}" -e ZOOM_MEETING_DURATION=${durationSec} -e ZOOM_START_BUFFER=${startBufferSec} -e ZOOM_STOP_BUFFER=${stopBufferSec} ${config.registry}/zoom-recorder:latest /usr/local/bin/start-recording.sh
+ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOOM_MEETING_URL="${answers.meetingUrl}" -e ZOOM_PASSWORD="${answers.password}" -e ZOOM_MEETING_DURATION=${durationSec} -e ZOOM_START_BUFFER=${startBufferSec} -e ZOOM_STOP_BUFFER=${stopBufferSec} -e ZOOM_LEAVE_EARLY=${leaveEarlySec} ${config.registry}/zoom-recorder:latest /usr/local/bin/start-recording.sh
 `;
         const unitName = 'zoom-recorder.service';
         (0, fs_1.writeFileSync)(`/tmp/${unitName}`, serviceContent);
@@ -316,7 +330,7 @@ ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOO
         (0, child_process_1.execSync)('sudo systemctl daemon-reload');
         (0, child_process_1.execSync)('sudo systemctl enable zoom-recorder.service');
         console.log(chalk_1.default.green('\n  ✓ Timer created!'));
-        console.log(chalk_1.default.gray(`  Start early: ${startBufferSec}s | Duration: ${durationSec}s | Extra: ${stopBufferSec}s`));
+        console.log(chalk_1.default.gray(`  Start early: ${startBufferSec}s | Duration: ${durationSec}s | Leave ${leaveEarlySec}s early | Extra: ${stopBufferSec}s`));
         console.log(chalk_1.default.gray(`  Total runtime: ${durationSec + stopBufferSec}s`));
         return;
     }
@@ -383,6 +397,12 @@ async function cmdConfig() {
             name: 'stopBuffer',
             message: 'Extra recording after (seconds):',
             default: config.stopBuffer
+        },
+        {
+            type: 'number',
+            name: 'leaveEarly',
+            message: 'Leave meeting early (seconds before end, 0=exact):',
+            default: config.leaveEarly
         }
     ]);
     saveConfig({ ...config, ...answers });
@@ -398,21 +418,21 @@ async function main() {
 ╔═══════════════════════════════════════════════════════╗
 ║               🎥  Zoom Recorder CLI                    ║
 ╠═══════════════════════════════════════════════════════╣
-║  install                       Install CLI and build   ║
-║  run <url> [pwd] [dur] [start] [stop]  Join & record  ║
-║  schedule                     Schedule (interactive) ║
-║  status                       Check if running        ║
-║  config                       Configure settings      ║
+║  install                              Install & build  ║
+║  run <url> [pwd] [dur] [start] [stop] [leave] Join    ║
+║  schedule                            Schedule (交互)   ║
+║  status                              Check if running ║
+║  config                              Configure        ║
 ╚═══════════════════════════════════════════════════════╝
 
   Examples:
-    zoom-rec install
     zoom-rec run https://zoom.us/j/123456789
-    zoom-rec run https://zoom.us/j/123 passcode 3600 300 600
-                          └─ duration └─ start early └─ extra after
+    zoom-rec run https://zoom.us/j/123 passcode 3600 300 600 0
+                          └─ duration └─ start early └─ stop └─ leave
   
-  Defaults:
+  Timing (defaults):
     Start early: 300s (5 min) | Extra after: 600s (10 min)
+    Leave at: exact end (0s early)
     `));
         process.exit(0);
     }
@@ -422,7 +442,7 @@ async function main() {
                 await cmdInstall();
                 break;
             case 'run':
-                await cmdRun(args[1], args[2], args[3] ? parseInt(args[3]) : undefined, args[4] ? parseInt(args[4]) : undefined, args[5] ? parseInt(args[5]) : undefined);
+                await cmdRun(args[1], args[2], args[3] ? parseInt(args[3]) : undefined, args[4] ? parseInt(args[4]) : undefined, args[5] ? parseInt(args[5]) : undefined, args[6] ? parseInt(args[6]) : undefined);
                 break;
             case 'schedule':
                 await cmdSchedule(args[1], args[2], args[3]);
