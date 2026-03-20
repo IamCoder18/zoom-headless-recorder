@@ -1,0 +1,23 @@
+{
+  "name": "zoom-recorder-cli",
+  "version": "1.0.0",
+  "description": "CLI for automated Zoom meeting recording",
+  "main": "dist/index.js",
+  "bin": {
+    "zoom-rec": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublish": "npm run build"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "ora": "^8.1.0",
+    "inquirer": "^12.5.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
