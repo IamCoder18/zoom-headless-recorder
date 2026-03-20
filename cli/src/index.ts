@@ -38,7 +38,7 @@ interface Meeting {
 }
 
 const defaultConfig: Config = {
-  registry: 'ghcr.io',
+  registry: 'ghcr.io',  // Will be updated to user's registry on install
   recordingsDir: join(homedir(), 'zoom-recordings'),
   apiPort: 8080,
   vncPort: 6080,

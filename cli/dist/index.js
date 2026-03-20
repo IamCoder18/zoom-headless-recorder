@@ -15,7 +15,7 @@ const os_1 = require("os");
 const CONFIG_DIR = (0, path_1.join)((0, os_1.homedir)(), '.zoom-recorder');
 const CONFIG_FILE = (0, path_1.join)(CONFIG_DIR, 'config.json');
 const defaultConfig = {
-    registry: 'ghcr.io',
+    registry: 'ghcr.io', // Will be updated to user's registry on install
     recordingsDir: (0, path_1.join)((0, os_1.homedir)(), 'zoom-recordings'),
     apiPort: 8080,
     vncPort: 6080,
