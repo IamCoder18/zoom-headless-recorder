@@ -4,10 +4,8 @@
 #
 # This script will:
 # 1. Check prerequisites (Docker, gh)
-# 2. Clone the repo (or use existing)
-# 3. Build the Docker image
-# 4. Push to GHCR (ghcr.io/<user>/zoom-recorder)
-# 5. Install the CLI wrapper
+# 2. Pull the pre-built multiarch Docker image from GHCR
+# 3. Install the CLI wrapper
 
 set -e
 
@@ -48,26 +46,11 @@ echo ""
 echo "Logging into GHCR..."
 echo "$GITHUB_TOKEN" | docker login $REGISTRY -u "$GITHUB_USER" --password-stdin 2>/dev/null
 
-# Clone or use existing repo
-REPO_DIR="/tmp/zoom-recorder-install"
-if [ -d "$REPO_DIR" ]; then
-    echo "Using existing repo..."
-    rm -rf "$REPO_DIR"
-fi
+# Pull pre-built image
+echo "Pulling Docker image..."
+docker pull "$IMAGE_NAME"
 
-echo "Cloning zoom-headless-recorder repo..."
-gh repo clone IamCoder18/zoom-headless-recorder "$REPO_DIR" 2>/dev/null || \
-    git clone -b master "https://github.com/IamCoder18/zoom-headless-recorder.git" "$REPO_DIR"
-
-# Build and push image
-echo "Building Docker image (this may take a few minutes)..."
-cd "$REPO_DIR"
-docker build -t "$IMAGE_NAME" .
-
-echo "Pushing image to GHCR..."
-docker push "$IMAGE_NAME"
-
-echo "Image pushed successfully!"
+echo "Image pulled successfully!"
 
 # Create config
 CONFIG_DIR="${HOME}/.zoom-recorder"
@@ -91,8 +74,7 @@ EOF
 echo "Installing CLI wrapper..."
 WRAPPER="/usr/local/bin/zoom-rec"
 
-# Create the wrapper script with proper escaping
-cat > /tmp/zoom-rec-wrapper << WAPPER_EOF
+cat > /tmp/zoom-rec-wrapper << WRAPPER_EOF
 #!/bin/bash
 CONFIG_DIR="\${HOME}/.zoom-recorder"
 CONFIG_FILE="\${CONFIG_DIR}/config.json"
@@ -130,7 +112,6 @@ case "\${1:-}" in
         
         [ -z "\$MEETING_URL" ] && { echo "Usage: zoom-rec run <url> [password] [duration] [prep] [join] [recordOffset] [leaveOffset] [recordAfter]"; exit 1; }
         
-        # Use positional args or fall back to config
         PREP_BUFFER="\${4:-\${PREP_BUFFER}}"
         JOIN_BUFFER="\${5:-\${JOIN_BUFFER}}"
         RECORD_OFFSET="\${6:-\${RECORD_OFFSET}}"
@@ -157,8 +138,12 @@ case "\${1:-}" in
             /usr/local/bin/start-recording.sh
         ;;
     install)
-        echo "Installing Zoom Recorder..."
-        curl -sL https://raw.githubusercontent.com/IamCoder18/zoom-headless-recorder/master/install.sh | bash
+        echo "Already installed! Pulling latest image..."
+        docker pull "$IMAGE_NAME"
+        ;;
+    update)
+        echo "Pulling latest image..."
+        docker pull "$IMAGE_NAME"
         ;;
     status)
         docker ps --filter "name=zoom-recorder" --format "{{.Status}}" 2>/dev/null || echo "Not running"
@@ -171,6 +156,7 @@ case "\${1:-}" in
         echo ""
         echo "Commands:"
         echo "  run <url> [pwd] [dur] [prep] [join] [rec] [leave] [after]  Join & record"
+        echo "  update                         Pull latest image"
         echo "  status                         Check if recorder is running"
         echo "  config                         Edit configuration"
         echo "  install                        Re-run installer"
@@ -183,16 +169,13 @@ case "\${1:-}" in
         echo "  zoom-rec run https://zoom.us/j/123 passcode 3600 60 600 300 -300 1200"
         ;;
 esac
-WAPPER_EOF
+WRAPPER_EOF
 
 sudo mv /tmp/zoom-rec-wrapper "$WRAPPER"
 sudo chmod +x "$WRAPPER"
 
 # Create recordings dir
 mkdir -p "${HOME}/zoom-recordings"
-
-# Cleanup
-rm -rf "$REPO_DIR"
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════╗"
