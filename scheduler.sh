@@ -5,9 +5,9 @@
 set -e
 
 # Configuration
-CONTAINER_NAME="zoom-recorder"
-IMAGE_NAME="zoom-recorder"
-RECORDINGS_DIR="${ZOOM_RECORDINGS_DIR:-$HOME/zoom-recordings}"
+CONTAINER_NAME="zoombie"
+IMAGE_NAME="zoombie"
+RECORDINGS_DIR="${ZOOM_RECORDINGS_DIR:-$HOME/zoombieordings}"
 API_PORT="${ZOOM_API_PORT:-8080}"
 VNC_PORT="${ZOOM_VNC_PORT:-6080}"
 
@@ -48,7 +48,7 @@ Environment Variables:
     ZOOM_LEAVE_OFFSET      Leave relative to meeting end (default: 0, positive=early, negative=late)
     ZOOM_RECORD_AFTER      Keep recording after leaving (default: 600s = 10min)
     
-    ZOOM_RECORDINGS_DIR    Where to save recordings (default: ~/zoom-recordings)
+    ZOOM_RECORDINGS_DIR    Where to save recordings (default: ~/zoombieordings)
     ZOOM_API_PORT          API port (default: 8080)
     ZOOM_VNC_PORT          VNC port (default: 6080)
 
@@ -79,7 +79,7 @@ EOF
 mkdir -p "$RECORDINGS_DIR"
 
 start_container() {
-    echo "Starting Zoom recorder container..."
+    echo "Starting ZoomPipe recorder container..."
     docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
     
     docker run -d \
@@ -102,7 +102,7 @@ start_container() {
 }
 
 stop_container() {
-    echo "Stopping Zoom recorder..."
+    echo "Stopping ZoomPipe recorder..."
     docker stop "$CONTAINER_NAME" 2>/dev/null || true
 }
 
@@ -157,15 +157,15 @@ schedule_meeting() {
     local script_path="$(realpath "$0")"
     local cron_cmd="ZOOM_MEETING_URL='$MEETING_URL' ZOOM_PASSWORD='$MEETING_PASSWORD' ZOOM_MEETING_DURATION='$MEETING_DURATION' $script_path run"
     
-    # Remove existing zoom-recorder cron entries
-    crontab -l 2>/dev/null | grep -v "zoom-recorder" | crontab -
+    # Remove existing zoombie cron entries
+    crontab -l 2>/dev/null | grep -v "zoombie" | crontab -
     
     # Add new cron job (starts 2 min before scheduled time)
     (crontab -l 2>/dev/null; echo "$cron_expr $cron_cmd") | crontab -
     
     echo "Scheduled: $cron_expr"
     echo "Entry: $cron_cmd"
-    crontab -l | grep zoom-recorder
+    crontab -l | grep zoombie
 }
 
 schedule_once() {
@@ -204,9 +204,9 @@ schedule_once() {
     echo "Scheduling via systemd..."
     
     # Alternative: create systemd timer
-    cat > /etc/systemd/system/zoom-recorder.timer << EOF
+    cat > /etc/systemd/system/zoombie.timer << EOF
 [Unit]
-Description=Zoom Meeting Recorder Timer
+Description=ZoomPipe Meeting Recorder Timer
 
 [Timer]
 OnCalendar=${start_date} ${early_hour}:${early_min}
@@ -216,9 +216,9 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-    cat > /etc/systemd/system/zoom-recorder.service << EOF
+    cat > /etc/systemd/system/zoombie.service << EOF
 [Unit]
-Description=Zoom Meeting Recorder
+Description=ZoomPipe Meeting Recorder
 After=network.target
 
 [Service]
@@ -230,8 +230,8 @@ ExecStart=$(realpath "$0") run
 EOF
     
     systemctl daemon-reload
-    systemctl enable zoom-recorder.timer
-    systemctl start zoom-recorder.timer
+    systemctl enable zoombie.timer
+    systemctl start zoombie.timer
     
     echo "Scheduled for $start_time"
     echo "  Starts at: ${early_hour}:${early_min} (${MEETING_START_BUFFER}s early)"

@@ -8,7 +8,7 @@ import inquirer from 'inquirer';
 import { homedir } from 'os';
 
 // Config paths
-const CONFIG_DIR = join(homedir(), '.zoom-recorder');
+const CONFIG_DIR = join(homedir(), '.zoombie');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 interface Config {
@@ -39,7 +39,7 @@ interface Meeting {
 
 const defaultConfig: Config = {
   registry: 'ghcr.io',  // Will be updated to user's registry on install
-  recordingsDir: join(homedir(), 'zoom-recordings'),
+  recordingsDir: join(homedir(), 'zoombieordings'),
   apiPort: 8080,
   vncPort: 6080,
   meetingDuration: 3600,
@@ -108,7 +108,7 @@ async function dockerHubLogin(): Promise<void> {
 async function cmdInstall(): Promise<void> {
   console.log(chalk.cyan(`
 ╔═══════════════════════════════════════════════════════╗
-║           Zoom Recorder CLI Installation              ║
+║           ZoomPipePipe CLI Installation              ║
 ╚═══════════════════════════════════════════════════════╝
   `));
 
@@ -141,7 +141,7 @@ async function cmdInstall(): Promise<void> {
 
   // Build and push image
   const imageSpinner = ora('Building Docker image...').start();
-  const imageName = `${config.registry}/zoom-recorder:latest`;
+  const imageName = `${config.registry}/zoombie:latest`;
   
   try {
     // Check if running in the repo
@@ -171,7 +171,7 @@ async function cmdInstall(): Promise<void> {
   }
 
   // Create wrapper script
-  const wrapperPath = join(config.binDir || '/usr/local/bin', 'zoom-rec');
+  const wrapperPath = join(config.binDir || '/usr/local/bin', 'zoombie');
   const wrapperContent = `#!/bin/bash
 docker run --rm -it \\
   -v ${config.recordingsDir}:/recordings \\
@@ -182,20 +182,20 @@ docker run --rm -it \\
 `;
   
   try {
-    writeFileSync('/tmp/zoom-rec', wrapperContent.replace('${config.binDir || \'/usr/local/bin\'}', '').replace('${imageName}', imageName).replace('${config.recordingsDir}', config.recordingsDir).replace('${config.apiPort}', String(config.apiPort)).replace('${config.vncPort}', String(config.vncPort)));
-    execSync('sudo mv /tmp/zoom-rec /usr/local/bin/zoom-rec && sudo chmod +x /usr/local/bin/zoom-rec', { stdio: 'inherit' });
-    console.log(chalk.green('\n  ✓ Installed! Run: zoom-rec --help'));
+    writeFileSync('/tmp/zoombie', wrapperContent.replace('${config.binDir || \'/usr/local/bin\'}', '').replace('${imageName}', imageName).replace('${config.recordingsDir}', config.recordingsDir).replace('${config.apiPort}', String(config.apiPort)).replace('${config.vncPort}', String(config.vncPort)));
+    execSync('sudo mv /tmp/zoombie /usr/local/bin/zoombie && sudo chmod +x /usr/local/bin/zoombie', { stdio: 'inherit' });
+    console.log(chalk.green('\n  ✓ Installed! Run: zoombie --help'));
   } catch {
-    console.log(chalk.yellow('\n  To complete manually: sudo mv /tmp/zoom-rec /usr/local/bin/zoom-rec'));
+    console.log(chalk.yellow('\n  To complete manually: sudo mv /tmp/zoombie /usr/local/bin/zoombie'));
   }
 
   console.log(chalk.cyan(`
 ╔═══════════════════════════════════════════════════════╗
 ║                    What's Next?                       ║
 ╠═══════════════════════════════════════════════════════╣
-║  zoom-rec run <url>           Join & record a meeting  ║
-║  zoom-rec schedule            Schedule a recording    ║
-║  zoom-rec status              Check container status  ║
+║  zoombie run <url>           Join & record a meeting  ║
+║  zoombie schedule            Schedule a recording    ║
+║  zoombie status              Check container status  ║
 ╚═══════════════════════════════════════════════════════╝
   `));
 }
@@ -211,8 +211,8 @@ async function cmdRun(
   recordAfter?: number
 ): Promise<void> {
   const config = ensureConfig();
-  const imageName = `${config.registry}/zoom-recorder:latest`;
-  const containerName = 'zoom-recorder';
+  const imageName = `${config.registry}/zoombie:latest`;
+  const containerName = 'zoombie';
   
   // Use CLI args or fall back to config
   const finalPrepBuffer = prepBuffer ?? config.prepBuffer;
@@ -224,16 +224,16 @@ async function cmdRun(
 
   // Non-interactive: require args
   if (!url) {
-    console.log(chalk.yellow('  Usage: zoom-rec run <url> [pwd] [dur] [prep] [join] [recordOffset] [leaveOffset] [recordAfter]'));
-    console.log(chalk.gray('  Or run interactively: zoom-rec run'));
-    console.log(chalk.gray('  Example: zoom-rec run https://zoom.us/j/123 3600 60 300 300 0 600'));
+    console.log(chalk.yellow('  Usage: zoombie run <url> [pwd] [dur] [prep] [join] [recordOffset] [leaveOffset] [recordAfter]'));
+    console.log(chalk.gray('  Or run interactively: zoombie run'));
+    console.log(chalk.gray('  Example: zoombie run https://zoom.us/j/123 3600 60 300 300 0 600'));
     console.log(chalk.gray('  Timing: prep=60s, join=300s early, record=300s early, leave=exact, after=600s'));
     return;
   }
 
   console.log(chalk.cyan(`
 ╔═══════════════════════════════════════════════════════╗
-║               Starting Zoom Recorder                   ║
+║               Starting ZoomPipePipe                   ║
 ╚═══════════════════════════════════════════════════════╝
   `));
   
@@ -320,7 +320,7 @@ async function cmdSchedule(when?: string, url?: string, password?: string): Prom
         type: 'input',
         name: 'meetingUrl',
         message: 'Meeting URL:',
-        validate: (v: string) => v.includes('zoom.us') || 'Invalid Zoom URL'
+        validate: (v: string) => v.includes('zoom.us') || 'Invalid ZoomPipe URL'
       },
       {
         type: 'input',
@@ -395,19 +395,19 @@ async function cmdSchedule(when?: string, url?: string, password?: string): Prom
     console.log(chalk.yellow('\n  Creating systemd timer...'));
     
     const serviceContent = `[Unit]
-Description=Zoom Meeting Recorder
+Description=ZoomPipe Meeting Recorder
 After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOOM_MEETING_URL="${answers.meetingUrl}" -e ZOOM_PASSWORD="${answers.password}" -e ZOOM_MEETING_DURATION=${durationSec} -e ZOOM_PREP_BUFFER=${prepBufferSec} -e ZOOM_JOIN_BUFFER=${joinBufferSec} -e ZOOM_RECORD_OFFSET=${recordOffsetSec} -e ZOOM_LEAVE_OFFSET=${leaveOffsetSec} -e ZOOM_RECORD_AFTER=${recordAfterSec} ${config.registry}/zoom-recorder:latest /usr/local/bin/start-recording.sh
+ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOOM_MEETING_URL="${answers.meetingUrl}" -e ZOOM_PASSWORD="${answers.password}" -e ZOOM_MEETING_DURATION=${durationSec} -e ZOOM_PREP_BUFFER=${prepBufferSec} -e ZOOM_JOIN_BUFFER=${joinBufferSec} -e ZOOM_RECORD_OFFSET=${recordOffsetSec} -e ZOOM_LEAVE_OFFSET=${leaveOffsetSec} -e ZOOM_RECORD_AFTER=${recordAfterSec} ${config.registry}/zoombie:latest /usr/local/bin/start-recording.sh
 `;
 
-    const unitName = 'zoom-recorder.service';
+    const unitName = 'zoombie.service';
     writeFileSync(`/tmp/${unitName}`, serviceContent);
     execSync(`sudo mv /tmp/${unitName} /etc/systemd/system/`);
     execSync('sudo systemctl daemon-reload');
-    execSync('sudo systemctl enable zoom-recorder.service');
+    execSync('sudo systemctl enable zoombie.service');
     
     console.log(chalk.green('\n  ✓ Timer created!'));
     console.log(chalk.gray(`  Timing: prep=${prepBufferSec}s, join=${joinBufferSec}s, record=${recordOffsetSec}s, leave=${leaveOffsetSec}s, after=${recordAfterSec}s`));
@@ -422,7 +422,7 @@ ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOO
 async function cmdStatus(): Promise<void> {
   const spinner = ora('Checking...').start();
   try {
-    const output = await run('docker', ['ps', '--filter', 'name=zoom-recorder', '--format', '{{.Status}}'], { silent: true });
+    const output = await run('docker', ['ps', '--filter', 'name=zoombie', '--format', '{{.Status}}'], { silent: true });
     if (output) {
       spinner.succeed(chalk.green('  Running'));
       console.log(chalk.gray('  Check http://localhost:8080/status for API'));
@@ -512,7 +512,7 @@ async function main() {
   if (!command || command === '--help' || command === '-h') {
     console.log(chalk.cyan(`
 ╔═══════════════════════════════════════════════════════╗
-║               🎥  Zoom Recorder CLI                    ║
+║               🎥  ZoomPipePipe CLI                    ║
 ╠═══════════════════════════════════════════════════════╣
 ║  install                                             Install  ║
 ║  run <url> [pwd] [dur] [prep] [join] [rec] [leave] [after]  ║
@@ -531,8 +531,8 @@ async function main() {
     recordAfter  = Keep recording after leaving (default: 600s = 10min)
 
   Examples:
-    zoom-rec run https://zoom.us/j/123456789
-    zoom-rec run https://zoom.us/j/123 passcode 3600 60 300 300 0 600
+    zoombie run https://zoom.us/j/123456789
+    zoombie run https://zoom.us/j/123 passcode 3600 60 300 300 0 600
     `));
     process.exit(0);
   }
@@ -565,7 +565,7 @@ async function main() {
         break;
       default:
         console.log(chalk.red(`  Unknown command: ${command}`));
-        console.log(chalk.gray('  Run: zoom-rec --help'));
+        console.log(chalk.gray('  Run: zoombie --help'));
     }
   } catch (e: any) {
     console.error(chalk.red(`  Error: ${e.message}`));

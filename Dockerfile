@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
     websockify \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Zoom from official permanent URL
+# Install ZoomPipe from official permanent URL
 RUN wget -q https://zoom.us/client/latest/zoom_amd64.deb -O /tmp/zoom.deb && \
     apt install -y /tmp/zoom.deb && \
     rm /tmp/zoom.deb && \

@@ -1,6 +1,6 @@
 # zoom-headless-recorder
 
-A reliable Docker-based solution for automated Zoom meeting joining and recording with CLI control.
+A reliable Docker-based solution for automated ZoomPipe meeting joining and recording with CLI control.
 
 ## Quick Install (One-Line)
 
@@ -27,19 +27,19 @@ cd cli && npm run build:image
 
 ```bash
 # Join and record a meeting (with defaults)
-zoom-rec run https://zoom.us/j/123456789
+zoombie run https://zoom.us/j/123456789
 
 # Full custom timing
-zoom-rec run https://zoom.us/j/123456789 [password] [duration] [prep] [join] [recordOffset] [leaveOffset] [recordAfter]
+zoombie run https://zoom.us/j/123456789 [password] [duration] [prep] [join] [recordOffset] [leaveOffset] [recordAfter]
 
 # Check status
-zoom-rec status
+zoombie status
 
 # Interactive scheduling
-zoom-rec schedule
+zoombie schedule
 
 # Configure defaults
-zoom-rec config
+zoombie config
 ```
 
 ## Timing Model
@@ -48,7 +48,7 @@ The recorder uses a flexible timing system with these parameters:
 
 | Parameter | Env Variable | Default | Description |
 |-----------|--------------|---------|-------------|
-| prepBuffer | `ZOOM_PREP_BUFFER` | 60s | System warmup (Xvfb, Zoom ready) before anything |
+| prepBuffer | `ZOOM_PREP_BUFFER` | 60s | System warmup (Xvfb, ZoomPipe ready) before anything |
 | joinBuffer | `ZOOM_JOIN_BUFFER` | 300s | Join meeting this many seconds BEFORE scheduled start |
 | recordOffset | `ZOOM_RECORD_OFFSET` | 300s | Start recording offset from meeting start (positive = early, negative = after) |
 | leaveOffset | `ZOOM_LEAVE_OFFSET` | 0s | Leave meeting relative to end (0 = exact, + = early, - = late) |
@@ -67,16 +67,16 @@ With defaults (prep=60, join=300, record=300, leave=0, after=600):
 
 ```bash
 # Join 10min early, start recording 5min early, leave 5min late, record 20min after
-zoom-rec run https://zoom.us/j/123 3600 60 600 300 -300 1200
+zoombie run https://zoom.us/j/123 3600 60 600 300 -300 1200
 ```
 
 ## Configuration
 
-Default config (`~/.zoom-recorder/config.json`):
+Default config (`~/.zoombie/config.json`):
 ```json
 {
   "registry": "ghcr.io",
-  "recordingsDir": "~/zoom-recordings",
+  "recordingsDir": "~/zoombieordings",
   "apiPort": 8080,
   "vncPort": 6080,
   "meetingDuration": 3600,
@@ -92,19 +92,19 @@ Default config (`~/.zoom-recorder/config.json`):
 
 - **noVNC**: http://localhost:6080 (browser-based virtual desktop)
 - **API**: http://localhost:8080
-- **Recordings**: `~/zoom-recordings/meeting_*.mp4`
+- **Recordings**: `~/zoombieordings/meeting_*.mp4`
 
 ## Container Lifecycle
 
 The CLI manages containers intelligently:
-1. Starts on demand (via `zoom-rec run`)
+1. Starts on demand (via `zoombie run`)
 2. Follows timing parameters for join/leave/record
 3. Auto-stops when done
 4. No persistent container = no resource waste
 
 ## Legal Note
 
-⚠️ Only use on meetings you host or have explicit permission to record. Automated recording may violate Zoom Terms of Service.
+⚠️ Only use on meetings you host or have explicit permission to record. Automated recording may violate ZoomPipe Terms of Service.
 
 ## License
 

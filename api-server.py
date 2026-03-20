@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simple REST API for controlling Zoom recorder
+Simple REST API for controlling ZoomPipe recorder
 """
 
 import http.server
@@ -15,7 +15,7 @@ PORT = 8080
 RECORDING_DIR = "/recordings"
 recording_process = None
 
-class ZoomRecorderHandler(http.server.BaseHTTPRequestHandler):
+class ZoomPipeRecorderHandler(http.server.BaseHTTPRequestHandler):
     
     def send_json(self, status, data):
         self.send_response(status)
@@ -89,12 +89,12 @@ class ZoomRecorderHandler(http.server.BaseHTTPRequestHandler):
             meeting_url = data.get('meeting_url')
             password = data.get('password', '')
             
-            # This would launch Zoom with the meeting URL
+            # This would launch ZoomPipe with the meeting URL
             # For now, just acknowledge
             self.send_json(200, {
                 'status': 'launching_zoom',
                 'meeting_url': meeting_url,
-                'note': 'Zoom must be installed in container'
+                'note': 'ZoomPipe must be installed in container'
             })
             
         else:
@@ -106,6 +106,6 @@ class ZoomRecorderHandler(http.server.BaseHTTPRequestHandler):
 if __name__ == '__main__':
     import datetime
     
-    print(f"Starting Zoom Recorder API on port {PORT}...")
-    with socketserver.TCPServer(("", PORT), ZoomRecorderHandler) as httpd:
+    print(f"Starting ZoomPipePipe API on port {PORT}...")
+    with socketserver.TCPServer(("", PORT), ZoomPipeRecorderHandler) as httpd:
         httpd.serve_forever()

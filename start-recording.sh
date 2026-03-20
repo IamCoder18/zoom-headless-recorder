@@ -3,7 +3,7 @@
 # Called by scheduler.sh or directly
 #
 # Timing model:
-#   prepBuffer    - System warmup time (Xvfb, Zoom ready) before we start anything
+#   prepBuffer    - System warmup time (Xvfb, ZoomPipe ready) before we start anything
 #   joinBuffer    - Join meeting X seconds BEFORE scheduled start
 #   recordOffset  - When to START recording relative to meeting start (can be negative)
 #   leaveOffset   - When to LEAVE relative to meeting end (positive=early, negative=late, 0=exact)
@@ -57,7 +57,7 @@ TOTAL_RUNTIME=$((RECORD_END_TIME - NOW))
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_FILE="${RECORDING_DIR}/meeting_${TIMESTAMP}.mp4"
 
-echo "=== Zoom Recorder Starting ==="
+echo "=== ZoomPipePipe Starting ==="
 echo "Time: $(date)"
 echo "Meeting: ${MEETING_URL:-manual}"
 echo "Output: $OUTPUT_FILE"
@@ -99,7 +99,7 @@ ffmpeg -f x11grab \
 RECORDER_PID=$!
 echo "Recording PID: $RECORDER_PID"
 
-# Launch Zoom with meeting URL if provided
+# Launch ZoomPipe with meeting URL if provided
 if [ -n "$MEETING_URL" ]; then
     # Wait until it's time to join
     SECONDS_TO_JOIN=$((JOIN_TIME - NOW - PREP_BUFFER))
@@ -109,10 +109,10 @@ if [ -n "$MEETING_URL" ]; then
     fi
     
     if command -v zoom &> /dev/null; then
-        echo "Launching Zoom and joining meeting: $MEETING_URL"
+        echo "Launching ZoomPipe and joining meeting: $MEETING_URL"
         nohup zoom "$MEETING_URL" > /tmp/zoom.log 2>&1 &
         ZOOM_PID=$!
-        echo "Zoom PID: $ZOOM_PID"
+        echo "ZoomPipe PID: $ZOOM_PID"
         
         # Wait until it's time to leave
         SECONDS_TO_LEAVE=$((LEAVE_TIME - JOIN_TIME))
@@ -123,14 +123,14 @@ if [ -n "$MEETING_URL" ]; then
         
         # Leave the meeting
         if kill -0 $ZOOM_PID 2>/dev/null; then
-            echo "Leaving meeting (closing Zoom)..."
+            echo "Leaving meeting (closing ZoomPipe)..."
             kill $ZOOM_PID 2>/dev/null || true
         fi
     fi
 fi
 
 echo ""
-echo "Zoom has left the meeting."
+echo "ZoomPipe has left the meeting."
 echo "Continuing to record for ${RECORD_AFTER}s (capturing post-meeting)..."
 echo ""
 

@@ -20,7 +20,7 @@ sleep 1
 
 echo ""
 echo "========================================"
-echo "Zoom Recorder ready!"
+echo "ZoomPipePipe ready!"
 echo "Access at: http://localhost:6080"
 echo "VNC password: (none)"
 echo ""

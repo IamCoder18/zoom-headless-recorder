@@ -1,14 +1,14 @@
 {
-  "name": "zoom-recorder-cli",
+  "name": "zoombie-cli",
   "version": "1.0.0",
-  "description": "CLI for automated Zoom meeting recording",
+  "description": "CLI for automated ZoomPipe meeting recording",
   "main": "dist/index.js",
   "bin": {
-    "zoom-rec": "./dist/index.js"
+    "zoombie": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
-    "build:image": "cd .. && docker buildx build --platforms=linux/amd64,linux/arm64,linux/arm/v7 --push -t ghcr.io/$(gh api user --jq .login)/zoom-recorder:latest .",
+    "build:image": "cd .. && docker buildx build --platforms=linux/amd64,linux/arm64,linux/arm/v7 --push -t ghcr.io/$(gh api user --jq .login)/zoombie:latest .",
     "prepublish": "npm run build"
   },
   "dependencies": {

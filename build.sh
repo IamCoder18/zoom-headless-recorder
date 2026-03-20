@@ -15,7 +15,7 @@ echo "╚═══════════════════════�
 
 # Get GitHub user
 GITHUB_USER=$(gh api user --jq .login)
-IMAGE_NAME="ghcr.io/${GITHUB_USER}/zoom-recorder:latest"
+IMAGE_NAME="ghcr.io/${GITHUB_USER}/zoombie:latest"
 
 echo "GitHub user: $GITHUB_USER"
 echo "Image: $IMAGE_NAME"
