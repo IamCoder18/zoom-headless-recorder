@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:image": "cd .. && docker buildx build --platforms=linux/amd64,linux/arm64,linux/arm/v7 --push -t ghcr.io/$(gh api user --jq .login)/zoom-recorder:latest .",
     "prepublish": "npm run build"
   },
   "dependencies": {

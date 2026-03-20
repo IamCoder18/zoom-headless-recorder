@@ -8,6 +8,21 @@ A reliable Docker-based solution for automated Zoom meeting joining and recordin
 curl -sL https://raw.githubusercontent.com/IamCoder18/zoom-headless-recorder/master/install.sh | bash
 ```
 
+## Building the Image
+
+To build and push the multiarch Docker image locally:
+
+```bash
+# Prerequisites: Docker with buildx enabled
+docker buildx create --name mybuilder --use
+
+# Build and push to GHCR
+./build.sh
+
+# Or via npm (from cli/ directory)
+cd cli && npm run build:image
+```
+
 ## Usage
 
 ```bash
