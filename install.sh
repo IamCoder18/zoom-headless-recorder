@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-line installer for ZoomPipePipe CLI
-# Usage: curl -sL https://raw.githubusercontent.com/IamCoder18/zoom-headless-recorder/master/install.sh | bash
+# Usage: curl -sL https://raw.githubusercontent.com/IamCoder18/zoombie/master/install.sh | bash
 #
 # This script will:
 # 1. Check prerequisites (Docker, gh)

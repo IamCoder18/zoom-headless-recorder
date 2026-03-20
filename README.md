@@ -1,11 +1,11 @@
-# zoom-headless-recorder
+# zoombie
 
 A reliable Docker-based solution for automated ZoomPipe meeting joining and recording with CLI control.
 
 ## Quick Install (One-Line)
 
 ```bash
-curl -sL https://raw.githubusercontent.com/IamCoder18/zoom-headless-recorder/master/install.sh | bash
+curl -sL https://raw.githubusercontent.com/IamCoder18/zoombie/master/install.sh | bash
 ```
 
 ## Building the Image
