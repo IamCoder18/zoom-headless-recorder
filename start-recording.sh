@@ -1,23 +1,57 @@
 #!/bin/bash
 # Start recording with environment-based meeting config
 # Called by scheduler.sh or directly
+#
+# Timing model:
+#   prepBuffer    - System warmup time (Xvfb, Zoom ready) before we start anything
+#   joinBuffer    - Join meeting X seconds BEFORE scheduled start
+#   recordOffset  - When to START recording relative to meeting start (can be negative)
+#   leaveOffset   - When to LEAVE relative to meeting end (positive=early, negative=late, 0=exact)
+#   recordAfter   - How long to KEEP RECORDING after we leave
+#
+# Example: Meeting at 14:00, duration 60min
+#   prepBuffer=60, joinBuffer=300, recordOffset=300, leaveOffset=0, recordAfter=600
+#   -> 13:55: Start prep (ensure system ready)
+#   -> 13:55: Start recording (recordOffset from 14:00 = 14:00-300s = 13:55)
+#   -> 13:55: Join meeting (joinBuffer from 14:00 = 13:55)
+#   -> 14:55: Leave meeting (14:00 + 60min + 0 = 14:55)
+#   -> 15:05: Stop recording (14:55 + 600s)
 
 set -e
 
 MEETING_URL="${ZOOM_MEETING_URL:-}"
 MEETING_PASSWORD="${ZOOM_PASSWORD:-}"
-DURATION="${ZOOM_MEETING_DURATION:-3600}"        # Meeting duration in seconds
-START_BUFFER="${ZOOM_START_BUFFER:-300}"          # Seconds to start early
-STOP_BUFFER="${ZOOM_STOP_BUFFER:-600}"            # Seconds to record after meeting ends
-LEAVE_EARLY="${ZOOM_LEAVE_EARLY:-0}"              # Optional: leave X seconds before duration
+DURATION="${ZOOM_MEETING_DURATION:-3600}"           # Expected meeting duration in seconds
+
+# Timing configuration
+PREP_BUFFER="${ZOOM_PREP_BUFFER:-60}"                # System warmup before anything (default: 60s)
+JOIN_BUFFER="${ZOOM_JOIN_BUFFER:-300}"               # Join meeting this many seconds BEFORE start (default: 300s = 5min)
+RECORD_OFFSET="${ZOOM_RECORD_OFFSET:-300}"            # Start recording offset from meeting start (positive=early, negative=after)
+LEAVE_OFFSET="${ZOOM_LEAVE_OFFSET:-0}"                # Leave meeting offset from end (positive=early, negative=late, 0=exact)
+RECORD_AFTER="${ZOOM_RECORD_AFTER:-600}"              # Keep recording after leaving (default: 600s = 10min)
+
 RECORDING_DIR="/recordings"
 DISPLAY=:99
 
-# Calculate timing
-TOTAL_RUNTIME=$((DURATION + STOP_BUFFER))
-MEETING_START_TIME=$(date +%s)
-MEETING_END_TIME=$((MEETING_START_TIME + DURATION))
-FULL_END_TIME=$((MEETING_START_TIME + TOTAL_RUNTIME))
+# Current time and meeting schedule
+NOW=$(date +%s)
+SCHEDULED_START=$NOW                                 # Meeting scheduled to start now (for immediate run)
+SCHEDULED_END=$((SCHEDULED_START + DURATION))
+
+# Calculate when to start each phase
+# Phase 1: System prep starts at (scheduled start - joinBuffer - prepBuffer)
+# Phase 2: Recording starts at (scheduled start + recordOffset)
+# Phase 3: Join meeting at (scheduled start - joinBuffer)
+# Phase 4: Leave meeting at (scheduled end + leaveOffset)
+# Phase 5: Stop recording at (leave time + recordAfter)
+
+RECORD_START_TIME=$((SCHEDULED_START + RECORD_OFFSET))
+JOIN_TIME=$((SCHEDULED_START - JOIN_BUFFER))
+LEAVE_TIME=$((SCHEDULED_END + LEAVE_OFFSET))
+RECORD_END_TIME=$((LEAVE_TIME + RECORD_AFTER))
+
+# Total runtime from NOW
+TOTAL_RUNTIME=$((RECORD_END_TIME - NOW))
 
 # Generate output filename
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -29,15 +63,28 @@ echo "Meeting: ${MEETING_URL:-manual}"
 echo "Output: $OUTPUT_FILE"
 echo ""
 echo "Timing configuration:"
-echo "  Start early: ${START_BUFFER}s"
-echo "  Meeting duration: ${DURATION}s"
-echo "  Leave meeting at: $(date -d @${MEETING_END_TIME} '+%H:%M:%S')"
-echo "  Record extra: ${STOP_BUFFER}s"
+echo "  Prep buffer: ${PREP_BUFFER}s (system warmup)"
+echo "  Join buffer: ${JOIN_BUFFER}s (join before scheduled start)"
+echo "  Record offset: ${RECORD_OFFSET}s (relative to meeting start)"
+echo "  Leave offset: ${LEAVE_OFFSET}s (relative to meeting end, + = early, - = late)"
+echo "  Record after: ${RECORD_AFTER}s (keep recording after leaving)"
+echo ""
+echo "Schedule (relative to now):"
+echo "  Recording starts: +$((RECORD_START_TIME - NOW))s"
+echo "  Join meeting: +$((JOIN_TIME - NOW))s"
+echo "  Leave meeting: +$((LEAVE_TIME - NOW))s"
+echo "  Stop recording: +$((RECORD_END_TIME - NOW))s"
 echo "  Total runtime: ${TOTAL_RUNTIME}s"
 echo ""
 
-# Start ffmpeg recording (runs for full total runtime)
-echo "Starting ffmpeg recording (will run for ${TOTAL_RUNTIME}s)..."
+# Wait for prep buffer (system warmup)
+if [ $PREP_BUFFER -gt 0 ]; then
+    echo "Warming up system (${PREP_BUFFER}s)..."
+    sleep $PREP_BUFFER
+fi
+
+# Start ffmpeg recording (runs from record start time to end time)
+echo "Starting ffmpeg recording (will run for ${TOTAL_RUNTIME}s from start)..."
 ffmpeg -f x11grab \
     -framerate 30 \
     -video_size 1920x1080 \
@@ -54,23 +101,27 @@ echo "Recording PID: $RECORDER_PID"
 
 # Launch Zoom with meeting URL if provided
 if [ -n "$MEETING_URL" ]; then
-    sleep 3
+    # Wait until it's time to join
+    SECONDS_TO_JOIN=$((JOIN_TIME - NOW - PREP_BUFFER))
+    if [ $SECONDS_TO_JOIN -gt 0 ]; then
+        echo "Waiting to join meeting in ${SECONDS_TO_JOIN}s..."
+        sleep $SECONDS_TO_JOIN
+    fi
     
     if command -v zoom &> /dev/null; then
-        echo "Launching Zoom: $MEETING_URL"
+        echo "Launching Zoom and joining meeting: $MEETING_URL"
         nohup zoom "$MEETING_URL" > /tmp/zoom.log 2>&1 &
         ZOOM_PID=$!
         echo "Zoom PID: $ZOOM_PID"
         
-        # Calculate when to leave the meeting
-        # By default, leave exactly at DURATION (meeting end time)
-        # Optionally leave early (LEAVE_EARLY) for buffer before scheduled end
-        LEAVE_AT=$((DURATION - LEAVE_EARLY))
-        echo "Will leave meeting in ${LEAVE_AT}s..."
+        # Wait until it's time to leave
+        SECONDS_TO_LEAVE=$((LEAVE_TIME - JOIN_TIME))
+        if [ $SECONDS_TO_LEAVE -gt 0 ]; then
+            echo "Will leave meeting in ${SECONDS_TO_LEAVE}s..."
+            sleep $SECONDS_TO_LEAVE
+        fi
         
-        # Wait until it's time to leave, then close Zoom
-        sleep "$LEAVE_AT"
-        
+        # Leave the meeting
         if kill -0 $ZOOM_PID 2>/dev/null; then
             echo "Leaving meeting (closing Zoom)..."
             kill $ZOOM_PID 2>/dev/null || true
@@ -80,11 +131,11 @@ fi
 
 echo ""
 echo "Zoom has left the meeting."
-echo "Continuing to record for ${STOP_BUFFER}s (capturing post-meeting)..."
+echo "Continuing to record for ${RECORD_AFTER}s (capturing post-meeting)..."
 echo ""
 
-# Wait for remaining recording time (if any)
-REMAINING=$((TOTAL_RUNTIME - DURATION))
+# Wait for remaining recording time
+REMAINING=$((RECORD_END_TIME - LEAVE_TIME))
 if [ $REMAINING -gt 0 ]; then
     sleep $REMAINING
 fi

@@ -17,9 +17,12 @@ interface Config {
   apiPort: number;
   vncPort: number;
   meetingDuration: number;
-  startBuffer: number;   // seconds to start early (default: 300 = 5 min)
-  stopBuffer: number;    // seconds to record after duration (default: 600 = 10 min)
-  leaveEarly: number;    // seconds to leave before duration ends (default: 0 = leave exactly at end)
+  // Timing configuration:
+  prepBuffer: number;     // System warmup before anything (default: 60s)
+  joinBuffer: number;     // Join meeting this many seconds BEFORE start (default: 300s = 5min)
+  recordOffset: number;   // Start recording offset from meeting start (default: 300s, can be negative)
+  leaveOffset: number;    // Leave relative to meeting end (default: 0, positive=early, negative=late)
+  recordAfter: number;    // Keep recording after leaving (default: 600s = 10min)
   binDir?: string;
 }
 
@@ -27,9 +30,11 @@ interface Meeting {
   url: string;
   password?: string;
   duration?: number;
-  startBuffer?: number;
-  stopBuffer?: number;
-  leaveEarly?: number;
+  prepBuffer?: number;
+  joinBuffer?: number;
+  recordOffset?: number;
+  leaveOffset?: number;
+  recordAfter?: number;
 }
 
 const defaultConfig: Config = {
@@ -38,9 +43,12 @@ const defaultConfig: Config = {
   apiPort: 8080,
   vncPort: 6080,
   meetingDuration: 3600,
-  startBuffer: 300,   // 5 minutes
-  stopBuffer: 600,    // 10 minutes
-  leaveEarly: 0       // leave exactly at duration by default
+  // Timing defaults:
+  prepBuffer: 60,        // 1 minute system warmup
+  joinBuffer: 300,      // 5 minutes - join before scheduled start
+  recordOffset: 300,    // 5 minutes - start recording before meeting
+  leaveOffset: 0,        // leave exactly at scheduled end
+  recordAfter: 600      // 10 minutes - keep recording after leaving
 };
 
 // Utility functions
@@ -192,22 +200,34 @@ docker run --rm -it \\
   `));
 }
 
-async function cmdRun(url?: string, password?: string, duration?: number, startBuffer?: number, stopBuffer?: number, leaveEarly?: number): Promise<void> {
+async function cmdRun(
+  url?: string, 
+  password?: string, 
+  duration?: number,
+  prepBuffer?: number,
+  joinBuffer?: number,
+  recordOffset?: number,
+  leaveOffset?: number,
+  recordAfter?: number
+): Promise<void> {
   const config = ensureConfig();
   const imageName = `${config.registry}/zoom-recorder:latest`;
   const containerName = 'zoom-recorder';
   
   // Use CLI args or fall back to config
-  const finalStartBuffer = startBuffer ?? config.startBuffer;
-  const finalStopBuffer = stopBuffer ?? config.stopBuffer;
+  const finalPrepBuffer = prepBuffer ?? config.prepBuffer;
+  const finalJoinBuffer = joinBuffer ?? config.joinBuffer;
+  const finalRecordOffset = recordOffset ?? config.recordOffset;
+  const finalLeaveOffset = leaveOffset ?? config.leaveOffset;
+  const finalRecordAfter = recordAfter ?? config.recordAfter;
   const finalDuration = duration ?? config.meetingDuration;
-  const finalLeaveEarly = leaveEarly ?? config.leaveEarly;
 
   // Non-interactive: require args
   if (!url) {
-    console.log(chalk.yellow('  Usage: zoom-rec run <meeting-url> [password] [duration] [start] [stop] [leave-early]'));
+    console.log(chalk.yellow('  Usage: zoom-rec run <url> [pwd] [dur] [prep] [join] [recordOffset] [leaveOffset] [recordAfter]'));
     console.log(chalk.gray('  Or run interactively: zoom-rec run'));
-    console.log(chalk.gray('  Example: zoom-rec run https://zoom.us/j/123 3600 300 600 0'));
+    console.log(chalk.gray('  Example: zoom-rec run https://zoom.us/j/123 3600 60 300 300 0 600'));
+    console.log(chalk.gray('  Timing: prep=60s, join=300s early, record=300s early, leave=exact, after=600s'));
     return;
   }
 
@@ -217,16 +237,14 @@ async function cmdRun(url?: string, password?: string, duration?: number, startB
 ╚═══════════════════════════════════════════════════════╝
   `));
   
-  const totalRuntime = finalDuration + finalStopBuffer;
-  const leaveAt = finalDuration - finalLeaveEarly;
-  
   console.log(chalk.gray(`
   Meeting: ${url}
-  Start early: ${finalStartBuffer}s
   Duration: ${finalDuration}s
-  Leave meeting at: ${leaveAt}s (${finalLeaveEarly}s early)
-  Record extra: ${finalStopBuffer}s
-  Total runtime: ${totalRuntime}s
+  Prep buffer: ${finalPrepBuffer}s (system warmup)
+  Join buffer: ${finalJoinBuffer}s (join before start)
+  Record offset: ${finalRecordOffset}s (relative to start, + early, - after)
+  Leave offset: ${finalLeaveOffset}s (relative to end, + early, - late, 0 exact)
+  Record after: ${finalRecordAfter}s (keep recording after leaving)
   `));
 
   const spinner = ora('Starting container...').start();
@@ -241,9 +259,11 @@ async function cmdRun(url?: string, password?: string, duration?: number, startB
   const envVars = [
     `-e`, `ZOOM_MEETING_URL=${url}`,
     `-e`, `ZOOM_MEETING_DURATION=${finalDuration}`,
-    `-e`, `ZOOM_START_BUFFER=${finalStartBuffer}`,
-    `-e`, `ZOOM_STOP_BUFFER=${finalStopBuffer}`,
-    `-e`, `ZOOM_LEAVE_EARLY=${finalLeaveEarly}`
+    `-e`, `ZOOM_PREP_BUFFER=${finalPrepBuffer}`,
+    `-e`, `ZOOM_JOIN_BUFFER=${finalJoinBuffer}`,
+    `-e`, `ZOOM_RECORD_OFFSET=${finalRecordOffset}`,
+    `-e`, `ZOOM_LEAVE_OFFSET=${finalLeaveOffset}`,
+    `-e`, `ZOOM_RECORD_AFTER=${finalRecordAfter}`
   ];
   if (password) {
     envVars.push(`-e`, `ZOOM_PASSWORD=${password}`);
@@ -328,23 +348,37 @@ async function cmdSchedule(when?: string, url?: string, password?: string): Prom
       },
       {
         type: 'input',
-        name: 'startBuffer',
-        message: 'Start early (seconds):',
+        name: 'prepBuffer',
+        message: 'System prep time (seconds):',
+        default: '60',
+        validate: (v: string) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be 0 or positive'
+      },
+      {
+        type: 'input',
+        name: 'joinBuffer',
+        message: 'Join meeting early (seconds before start):',
         default: '300',
-        validate: (v: string) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be a positive number'
+        validate: (v: string) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be 0 or positive'
       },
       {
         type: 'input',
-        name: 'stopBuffer',
-        message: 'Extra recording after (seconds):',
-        default: '600',
-        validate: (v: string) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be a positive number'
+        name: 'recordOffset',
+        message: 'Start recording offset (seconds, + early, - after):',
+        default: '300',
+        validate: (v: string) => !isNaN(parseInt(v)) || 'Must be a number'
       },
       {
         type: 'input',
-        name: 'leaveEarly',
-        message: 'Leave meeting early (seconds before end, 0=exact):',
+        name: 'leaveOffset',
+        message: 'Leave offset (seconds, + early, - late, 0 exact):',
         default: '0',
+        validate: (v: string) => !isNaN(parseInt(v)) || 'Must be a number'
+      },
+      {
+        type: 'input',
+        name: 'recordAfter',
+        message: 'Keep recording after leaving (seconds):',
+        default: '600',
         validate: (v: string) => !isNaN(parseInt(v)) && parseInt(v) >= 0 || 'Must be 0 or positive'
       }
     ]);
@@ -352,9 +386,11 @@ async function cmdSchedule(when?: string, url?: string, password?: string): Prom
     // Create systemd unit
     const config = ensureConfig();
     const durationSec = parseInt(answers.duration) * 60;
-    const startBufferSec = parseInt(answers.startBuffer);
-    const stopBufferSec = parseInt(answers.stopBuffer);
-    const leaveEarlySec = parseInt(answers.leaveEarly);
+    const prepBufferSec = parseInt(answers.prepBuffer);
+    const joinBufferSec = parseInt(answers.joinBuffer);
+    const recordOffsetSec = parseInt(answers.recordOffset);
+    const leaveOffsetSec = parseInt(answers.leaveOffset);
+    const recordAfterSec = parseInt(answers.recordAfter);
     
     console.log(chalk.yellow('\n  Creating systemd timer...'));
     
@@ -364,7 +400,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOOM_MEETING_URL="${answers.meetingUrl}" -e ZOOM_PASSWORD="${answers.password}" -e ZOOM_MEETING_DURATION=${durationSec} -e ZOOM_START_BUFFER=${startBufferSec} -e ZOOM_STOP_BUFFER=${stopBufferSec} -e ZOOM_LEAVE_EARLY=${leaveEarlySec} ${config.registry}/zoom-recorder:latest /usr/local/bin/start-recording.sh
+ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOOM_MEETING_URL="${answers.meetingUrl}" -e ZOOM_PASSWORD="${answers.password}" -e ZOOM_MEETING_DURATION=${durationSec} -e ZOOM_PREP_BUFFER=${prepBufferSec} -e ZOOM_JOIN_BUFFER=${joinBufferSec} -e ZOOM_RECORD_OFFSET=${recordOffsetSec} -e ZOOM_LEAVE_OFFSET=${leaveOffsetSec} -e ZOOM_RECORD_AFTER=${recordAfterSec} ${config.registry}/zoom-recorder:latest /usr/local/bin/start-recording.sh
 `;
 
     const unitName = 'zoom-recorder.service';
@@ -374,8 +410,7 @@ ExecStart=/usr/bin/docker run --rm -v ${config.recordingsDir}:/recordings -e ZOO
     execSync('sudo systemctl enable zoom-recorder.service');
     
     console.log(chalk.green('\n  ✓ Timer created!'));
-    console.log(chalk.gray(`  Start early: ${startBufferSec}s | Duration: ${durationSec}s | Leave ${leaveEarlySec}s early | Extra: ${stopBufferSec}s`));
-    console.log(chalk.gray(`  Total runtime: ${durationSec + stopBufferSec}s`));
+    console.log(chalk.gray(`  Timing: prep=${prepBufferSec}s, join=${joinBufferSec}s, record=${recordOffsetSec}s, leave=${leaveOffsetSec}s, after=${recordAfterSec}s`));
     return;
   }
 
@@ -434,21 +469,33 @@ async function cmdConfig(): Promise<void> {
     },
     {
       type: 'number',
-      name: 'startBuffer',
-      message: 'Start early (seconds):',
-      default: config.startBuffer
+      name: 'prepBuffer',
+      message: 'System prep time (seconds):',
+      default: config.prepBuffer
     },
     {
       type: 'number',
-      name: 'stopBuffer',
-      message: 'Extra recording after (seconds):',
-      default: config.stopBuffer
+      name: 'joinBuffer',
+      message: 'Join meeting early (seconds before start):',
+      default: config.joinBuffer
     },
     {
       type: 'number',
-      name: 'leaveEarly',
-      message: 'Leave meeting early (seconds before end, 0=exact):',
-      default: config.leaveEarly
+      name: 'recordOffset',
+      message: 'Recording start offset (seconds, + early, - after):',
+      default: config.recordOffset
+    },
+    {
+      type: 'number',
+      name: 'leaveOffset',
+      message: 'Leave offset (seconds, + early, - late, 0 exact):',
+      default: config.leaveOffset
+    },
+    {
+      type: 'number',
+      name: 'recordAfter',
+      message: 'Keep recording after leaving (seconds):',
+      default: config.recordAfter
     }
   ]);
 
@@ -467,21 +514,25 @@ async function main() {
 ╔═══════════════════════════════════════════════════════╗
 ║               🎥  Zoom Recorder CLI                    ║
 ╠═══════════════════════════════════════════════════════╣
-║  install                              Install & build  ║
-║  run <url> [pwd] [dur] [start] [stop] [leave] Join    ║
-║  schedule                            Schedule (交互)   ║
-║  status                              Check if running ║
-║  config                              Configure        ║
+║  install                                             Install  ║
+║  run <url> [pwd] [dur] [prep] [join] [rec] [leave] [after]  ║
+║  schedule                                           Schedule ║
+║  status                                             Status   ║
+║  config                                             Config   ║
 ╚═══════════════════════════════════════════════════════╝
+
+  Timing Model:
+    prepBuffer   = System warmup before anything (default: 60s)
+    joinBuffer   = Join meeting N seconds BEFORE start (default: 300s)
+    recordOffset = Start recording offset from meeting start
+                   (default: 300s = 5min early, can be negative)
+    leaveOffset  = Leave relative to meeting end
+                   (default: 0 = exact, + = early, - = late)
+    recordAfter  = Keep recording after leaving (default: 600s = 10min)
 
   Examples:
     zoom-rec run https://zoom.us/j/123456789
-    zoom-rec run https://zoom.us/j/123 passcode 3600 300 600 0
-                          └─ duration └─ start early └─ stop └─ leave
-  
-  Timing (defaults):
-    Start early: 300s (5 min) | Extra after: 600s (10 min)
-    Leave at: exact end (0s early)
+    zoom-rec run https://zoom.us/j/123 passcode 3600 60 300 300 0 600
     `));
     process.exit(0);
   }
@@ -498,7 +549,9 @@ async function main() {
           args[3] ? parseInt(args[3]) : undefined,
           args[4] ? parseInt(args[4]) : undefined,
           args[5] ? parseInt(args[5]) : undefined,
-          args[6] ? parseInt(args[6]) : undefined
+          args[6] ? parseInt(args[6]) : undefined,
+          args[7] ? parseInt(args[7]) : undefined,
+          args[8] ? parseInt(args[8]) : undefined
         );
         break;
       case 'schedule':

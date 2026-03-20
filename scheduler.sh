@@ -14,9 +14,14 @@ VNC_PORT="${ZOOM_VNC_PORT:-6080}"
 # Meeting config (set via env or args)
 MEETING_URL="${ZOOM_MEETING_URL:-}"
 MEETING_PASSWORD="${ZOOM_PASSWORD:-}"
-MEETING_START_BUFFER="${ZOOM_START_BUFFER:-300}"    # seconds to start early (default: 5 min)
-MEETING_STOP_BUFFER="${ZOOM_STOP_BUFFER:-600}"      # seconds to run after duration (default: 10 min)
-MEETING_DURATION="${ZOOM_MEETING_DURATION:-3600}"   # expected meeting duration in seconds
+MEETING_DURATION="${ZOOM_MEETING_DURATION:-3600}"    # expected meeting duration in seconds
+
+# Timing configuration
+PREP_BUFFER="${ZOOM_PREP_BUFFER:-60}"                 # system warmup before anything (default: 60s)
+JOIN_BUFFER="${ZOOM_JOIN_BUFFER:-300}"                # join meeting this many seconds BEFORE start (default: 5min)
+RECORD_OFFSET="${ZOOM_RECORD_OFFSET:-300}"            # start recording offset from meeting start (default: 5min early)
+LEAVE_OFFSET="${ZOOM_LEAVE_OFFSET:-0}"                # leave offset from meeting end (positive=early, negative=late, 0=exact)
+RECORD_AFTER="${ZOOM_RECORD_AFTER:-600}"              # keep recording after leaving (default: 10min)
 
 usage() {
     cat << EOF
@@ -35,23 +40,37 @@ Environment Variables:
     ZOOM_MEETING_URL       Meeting URL (e.g., https://zoom.us/j/123456789)
     ZOOM_PASSWORD          Meeting passcode
     ZOOM_MEETING_DURATION  Expected meeting duration in seconds (default: 3600)
-    ZOOM_START_BUFFER      Seconds to start early (default: 300 = 5 min)
-    ZOOM_STOP_BUFFER       Seconds to keep recording after duration (default: 600 = 10 min)
+    
+    # Timing (all optional with smart defaults):
+    ZOOM_PREP_BUFFER       System warmup before anything (default: 60s)
+    ZOOM_JOIN_BUFFER       Join meeting N seconds BEFORE scheduled start (default: 300s = 5min)
+    ZOOM_RECORD_OFFSET     Recording start offset from meeting start (default: 300s, can be negative)
+    ZOOM_LEAVE_OFFSET      Leave relative to meeting end (default: 0, positive=early, negative=late)
+    ZOOM_RECORD_AFTER      Keep recording after leaving (default: 600s = 10min)
+    
     ZOOM_RECORDINGS_DIR    Where to save recordings (default: ~/zoom-recordings)
     ZOOM_API_PORT          API port (default: 8080)
     ZOOM_VNC_PORT          VNC port (default: 6080)
 
+Timing Model Example (Meeting at 14:00, duration 60min):
+    prepBuffer=60, joinBuffer=300, recordOffset=300, leaveOffset=0, recordAfter=600
+    -> 13:54: System prep starts (60s warmup)
+    -> 13:55: Recording starts (300s offset from 14:00)
+    -> 13:55: Join meeting (300s before 14:00)
+    -> 14:55: Leave meeting (at scheduled end, offset=0)
+    -> 15:05: Stop recording (600s after leaving)
+
 Examples:
-    # Run immediately with defaults (start 5 min early, stop 10 min after)
+    # Run immediately with defaults
     ZOOM_MEETING_URL="https://zoom.us/j/123456789" ZOOM_PASSWORD="abc123" ./scheduler.sh run
 
-    # Custom timing
-    ZOOM_MEETING_URL="..." ZOOM_START_BUFFER=600 ZOOM_STOP_BUFFER=300 ZOOM_MEETING_DURATION=1800 ./scheduler.sh run
+    # Custom: join 10min early, record 10min early, leave 5min late, record 15min after
+    ZOOM_MEETING_URL="..." ZOOM_JOIN_BUFFER=600 ZOOM_RECORD_OFFSET=600 ZOOM_LEAVE_OFFSET=-300 ZOOM_RECORD_AFTER=900 ./scheduler.sh run
 
     # Schedule for 2pm daily
     ZOOM_MEETING_URL="..." ./scheduler.sh schedule "0 14 * * 1-5"
 
-    # Schedule for specific meeting time (starts 5 min early, runs 10 min extra)
+    # Schedule for specific meeting time
     ./scheduler.sh schedule-once "2026-03-20 14:00" "https://zoom.us/j/..." "passcode"
 EOF
 }
@@ -71,6 +90,12 @@ start_container() {
         -e DISPLAY=:99 \
         -e ZOOM_MEETING_URL="$MEETING_URL" \
         -e ZOOM_PASSWORD="$MEETING_PASSWORD" \
+        -e ZOOM_MEETING_DURATION="$MEETING_DURATION" \
+        -e ZOOM_PREP_BUFFER="$PREP_BUFFER" \
+        -e ZOOM_JOIN_BUFFER="$JOIN_BUFFER" \
+        -e ZOOM_RECORD_OFFSET="$RECORD_OFFSET" \
+        -e ZOOM_LEAVE_OFFSET="$LEAVE_OFFSET" \
+        -e ZOOM_RECORD_AFTER="$RECORD_AFTER" \
         "$IMAGE_NAME"
     
     echo "Container started. VNC: localhost:${VNC_PORT}, API: localhost:${API_PORT}"
@@ -87,15 +112,14 @@ run_recording() {
         exit 1
     fi
     
-    # Calculate total runtime: duration + stop buffer
-    local total_runtime=$((MEETING_DURATION + MEETING_STOP_BUFFER))
-    
     echo "Starting recording with:"
     echo "  Meeting: $MEETING_URL"
-    echo "  Start buffer: ${MEETING_START_BUFFER}s early"
+    echo "  Prep buffer: ${PREP_BUFFER}s"
+    echo "  Join buffer: ${JOIN_BUFFER}s (join before start)"
+    echo "  Record offset: ${RECORD_OFFSET}s (relative to meeting start)"
     echo "  Duration: ${MEETING_DURATION}s"
-    echo "  Stop buffer: ${MEETING_STOP_BUFFER}s after"
-    echo "  Total runtime: ${total_runtime}s"
+    echo "  Leave offset: ${LEAVE_OFFSET}s (relative to end, + early, - late, 0 exact)"
+    echo "  Record after: ${RECORD_AFTER}s (keep recording after leaving)"
     echo ""
     
     # Start container if not running
@@ -112,10 +136,11 @@ run_recording() {
         -d "{\"meeting_url\": \"$MEETING_URL\", \"password\": \"$MEETING_PASSWORD\"}" | jq .
     
     echo "Recording started. Access VNC at localhost:${VNC_PORT} to verify."
-    echo "Recording will run for ${total_runtime}s (duration + stop buffer)"
+    echo "Recording will run for the configured duration based on timing parameters"
     
-    # Run in background, will auto-stop after total_runtime
-    sleep "$total_runtime"
+    # Run in background - actual timing handled by start-recording.sh inside container
+    # We just wait for a reasonable time; the container will stop itself
+    sleep $((MEETING_DURATION + RECORD_AFTER + 60))
     
     curl -s -X POST "http://localhost:${API_PORT}/stop-recording" | jq .
     echo "Recording stopped. Check $RECORDINGS_DIR for output."
