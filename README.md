@@ -1,81 +1,124 @@
 # zoom-headless-recorder
 
-A reliable, containerized solution for automated Zoom meeting joining and recording.
-
-## Architecture
-
-- **Docker container** with:
-  - Xvfb (virtual framebuffer for headless display)
-  - Zoom client (via wine or native Linux)
-  - ffmpeg for screen recording
-  - noVNC for browser-based control
-- **Automation scripts** to join meetings and control recording
-- **REST API** (optional) for programmatic control
+A reliable Docker-based solution for automated Zoom meeting joining and recording with scheduler and API.
 
 ## Quick Start
 
 ```bash
-# Build the container
+# 1. Build the image
 docker build -t zoom-recorder .
 
-# Run with recording
-docker run -d \
-  -v $(pwd)/recordings:/recordings \
-  -p 6080:6080 \
-  zoom-recorder
-
-# Join a meeting (via noVNC browser at http://localhost:6080)
-# Or use the API (see below)
+# 2. Run a meeting immediately
+ZOOM_MEETING_URL="https://zoom.us/j/123456789" \
+ZOOM_PASSWORD="abc123" \
+./scheduler.sh run
 ```
 
-## Requirements
+## Architecture
 
-- Docker
-- Linux host (recommended for best X11 compatibility)
-- 2GB+ RAM allocated to container
-- Meeting host permission (or your own meetings)
+- **Docker container** with Xvfb, Zoom client, ffmpeg, noVNC
+- **Scheduler** (cron/systemd) for automated runs
+- **REST API** for recording control
+- **Environment-based config** for meeting credentials
+
+## Meeting Parameters
+
+Passed via environment variables:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `ZOOM_MEETING_URL` | Full meeting URL (e.g., `https://zoom.us/j/123456789`) | Yes |
+| `ZOOM_PASSWORD` | Meeting passcode | If meeting requires it |
+| `ZOOM_MEETING_DURATION` | Recording duration in seconds (default: 3600) | No |
+| `ZOOM_RECORDINGS_DIR` | Host path for recordings (default: `~/zoom-recordings`) | No |
 
 ## Usage
 
-### Method 1: Browser Control (noVNC)
-1. Open `http://localhost:6080` in browser
-2. Use the virtual desktop to:
-   - Launch Zoom client
-   - Join your meeting
-   - Start recording via included ffmpeg command
+### Manual Run
 
-### Method 2: Automated Join
 ```bash
-# Set meeting details
-export ZOOM_MEETING_URL="https://zoom.us/j/123456789"
-export ZOOM_PASSWORD="password"
-
-# Run the automation
-docker run -d \
-  -e ZOOM_MEETING_URL="$ZOOM_MEETING_URL" \
-  -e ZOOM_PASSWORD="$ZOOM_PASSWORD" \
-  -v $(pwd)/recordings:/recordings \
-  zoom-recorder ./start-recording.sh
+# Full manual with custom duration and output dir
+ZOOM_MEETING_URL="https://zoom.us/j/123456789" \
+ZOOM_PASSWORD="secret" \
+ZOOM_MEETING_DURATION=7200 \
+ZOOM_RECORDINGS_DIR=/my/recordings \
+./scheduler.sh run
 ```
 
-### Method 3: API Server
+### Scheduled (Cron)
+
 ```bash
-# Start API server
-docker run -d -p 8080:8080 zoom-recorder ./api-server.sh
+# Schedule daily at 2pm (Mon-Fri)
+ZOOM_MEETING_URL="https://zoom.us/j/..." \
+ZOOM_PASSWORD="..." \
+./scheduler.sh schedule "0 14 * * 1-5"
+```
 
-# Control via HTTP
-curl -X POST http://localhost:8080/join \
-  -d '{"meeting_url": "...", "password": "..."}'
+### One-Time Schedule
 
+```bash
+# Schedule for specific date/time (starts 2 min early)
+./scheduler.sh schedule-once "2026-03-25 14:00" "https://zoom.us/j/..." "password"
+```
+
+This creates systemd timers (Linux) - works reliably without running container 24/7.
+
+### Start/Stop Container Manually
+
+```bash
+./scheduler.sh start    # Start container, keep running
+./scheduler.sh stop     # Stop container
+./scheduler.sh status   # Check if running
+./scheduler.sh logs     # View container logs
+```
+
+### API Control
+
+When container is running:
+
+```bash
+# Start recording
 curl -X POST http://localhost:8080/start-recording
+
+# Join meeting
+curl -X POST http://localhost:8080/join \
+  -H "Content-Type: application/json" \
+  -d '{"meeting_url": "https://zoom.us/j/...", "password": "..."}'
+
+# Stop recording
 curl -X POST http://localhost:8080/stop-recording
+
+# Check status
+curl http://localhost:8080/status
+
+# List recordings
+curl http://localhost:8080/recordings
 ```
+
+## Access
+
+- **noVNC**: http://localhost:6080 (browser-based virtual desktop)
+- **API**: http://localhost:8080
+- **VNC**: localhost:5900 (raw VNC if needed)
 
 ## Recording Output
 
-Recordings saved to `/recordings` mount:
+Recordings saved to mounted directory:
 - `meeting_YYYYMMDD_HHMMSS.mp4` - Full meeting recording
-- Logs saved alongside for debugging
+
+## Container Lifecycle
+
+The scheduler manages container lifecycle intelligently:
+
+1. **Starts ~2 minutes before meeting** (configurable via `ZOOM_START_BUFFER`)
+2. **Runs for meeting duration** (or `ZOOM_MEETING_DURATION`)
+3. **Auto-stops after recording completes**
+4. **No persistent container** - saves resources
+
+Using `scheduler.sh schedule-once` with systemd timers ensures:
+- Container only runs when needed
+- Starts early enough to initialize (2 min buffer)
+- Stops automatically after duration
 
 ## Legal Note
 

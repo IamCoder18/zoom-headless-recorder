@@ -1,11 +1,12 @@
 #!/bin/bash
-# Automated Zoom meeting join and recording script
+# Start recording with environment-based meeting config
+# Called by scheduler.sh or directly
 
 set -e
 
-# Configuration
 MEETING_URL="${ZOOM_MEETING_URL:-}"
 MEETING_PASSWORD="${ZOOM_PASSWORD:-}"
+DURATION="${ZOOM_MEETING_DURATION:-3600}"  # default 1 hour
 RECORDING_DIR="/recordings"
 DISPLAY=:99
 
@@ -13,20 +14,14 @@ DISPLAY=:99
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_FILE="${RECORDING_DIR}/meeting_${TIMESTAMP}.mp4"
 
-echo "=== Zoom Meeting Recorder ==="
-echo "Meeting: ${MEETING_URL:-NOT SET}"
+echo "=== Zoom Recorder Starting ==="
+echo "Time: $(date)"
+echo "Meeting: ${MEETING_URL:-manual}"
 echo "Output: ${OUTPUT_FILE}"
 echo ""
 
-# Check if meeting URL is provided
-if [ -z "$MEETING_URL" ]; then
-    echo "ERROR: ZOOM_MEETING_URL not set"
-    echo "Usage: docker run -e ZOOM_MEETING_URL='https://zoom.us/j/...' -e ZOOM_PASSWORD='...' ..."
-    exit 1
-fi
-
-# Start ffmpeg recording in background
-echo "Starting screen recording..."
+# Start ffmpeg recording
+echo "Starting ffmpeg recording..."
 ffmpeg -f x11grab \
     -framerate 30 \
     -video_size 1920x1080 \
@@ -35,30 +30,39 @@ ffmpeg -f x11grab \
     -preset fast \
     -crf 23 \
     -pix_fmt yuv420p \
+    -t "$DURATION" \
     "$OUTPUT_FILE" &
 
 RECORDER_PID=$!
-echo "Recording started (PID: $RECORDER_PID)"
+echo "Recording PID: $RECORDER_PID"
 
-# Give ffmpeg time to initialize
-sleep 3
-
-# Try to open Zoom (requires Zoom to be installed in container)
-# This is a placeholder - actual Zoom launch depends on having the .deb
-if command -v zoom &> /dev/null; then
-    echo "Launching Zoom..."
-    # Zoom would be launched here with meeting URL
-    # zoom "$MEETING_URL"
-    echo "Note: Zoom must be installed in the container"
-else
-    echo "Note: Zoom not installed - use noVNC to manually join"
+# Launch Zoom with meeting URL if provided
+if [ -n "$MEETING_URL" ]; then
+    sleep 3
+    
+    # Zoom client can accept meeting URLs directly
+    # For URL with password: zoom.us/j/123456?pwd=xxx
+    # Or passcode can be entered manually via VNC
+    if command -v zoom &> /dev/null; then
+        echo "Launching Zoom: $MEETING_URL"
+        nohup zoom "$MEETING_URL" > /tmp/zoom.log 2>&1 &
+        ZOOM_PID=$!
+        echo "Zoom PID: $ZOOM_PID"
+    fi
 fi
 
 echo ""
 echo "Recording in progress..."
-echo "Access noVNC at http://localhost:6080 to control the meeting"
-echo "Press Ctrl+C to stop recording"
+echo "VNC: http://localhost:6080"
+echo "API: http://localhost:8080"
+echo "Will stop after ${DURATION}s or on SIGINT"
 echo ""
 
-# Wait for user interrupt or signal
+# Wait for recording to complete
+# Recording stops automatically after DURATION or can be stopped via API
 wait $RECORDER_PID
+
+echo ""
+echo "=== Recording Complete ==="
+echo "File: $OUTPUT_FILE"
+ls -lh "$OUTPUT_FILE"

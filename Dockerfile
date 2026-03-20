@@ -19,10 +19,11 @@ RUN apt-get update && apt-get install -y \
     websockify \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Zoom (placeholder - user should add actual Zoom .deb)
-# Download from: https://zoom.us/download?os=linux
-# For now, we'll use a stub that explains the setup
-RUN mkdir -p /opt/zoom /usr/bin/zoom
+# Install Zoom from official permanent URL
+RUN wget -q https://zoom.us/client/latest/zoom_amd64.deb -O /tmp/zoom.deb && \
+    apt install -y /tmp/zoom.deb && \
+    rm /tmp/zoom.deb && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create startup script
 COPY start-x11.sh /usr/local/bin/start-x11.sh
