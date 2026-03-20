@@ -14,8 +14,9 @@ VNC_PORT="${ZOOM_VNC_PORT:-6080}"
 # Meeting config (set via env or args)
 MEETING_URL="${ZOOM_MEETING_URL:-}"
 MEETING_PASSWORD="${ZOOM_PASSWORD:-}"
-MEETING_START_BUFFER="${ZOOM_START_BUFFER:-120}"  # seconds to start early
-MEETING_DURATION="${ZOOM_MEETING_DURATION:-3600}"   # expected duration
+MEETING_START_BUFFER="${ZOOM_START_BUFFER:-300}"    # seconds to start early (default: 5 min)
+MEETING_STOP_BUFFER="${ZOOM_STOP_BUFFER:-600}"      # seconds to run after duration (default: 10 min)
+MEETING_DURATION="${ZOOM_MEETING_DURATION:-3600}"   # expected meeting duration in seconds
 
 usage() {
     cat << EOF
@@ -33,18 +34,24 @@ Commands:
 Environment Variables:
     ZOOM_MEETING_URL       Meeting URL (e.g., https://zoom.us/j/123456789)
     ZOOM_PASSWORD          Meeting passcode
+    ZOOM_MEETING_DURATION  Expected meeting duration in seconds (default: 3600)
+    ZOOM_START_BUFFER      Seconds to start early (default: 300 = 5 min)
+    ZOOM_STOP_BUFFER       Seconds to keep recording after duration (default: 600 = 10 min)
     ZOOM_RECORDINGS_DIR    Where to save recordings (default: ~/zoom-recordings)
     ZOOM_API_PORT          API port (default: 8080)
     ZOOM_VNC_PORT          VNC port (default: 6080)
 
 Examples:
-    # Run immediately
+    # Run immediately with defaults (start 5 min early, stop 10 min after)
     ZOOM_MEETING_URL="https://zoom.us/j/123456789" ZOOM_PASSWORD="abc123" ./scheduler.sh run
 
-    # Schedule for 2pm daily
-    ZOOM_MEETING_URL="..." ./scheduler.sh schedule "14:00 * * 1-5"
+    # Custom timing
+    ZOOM_MEETING_URL="..." ZOOM_START_BUFFER=600 ZOOM_STOP_BUFFER=300 ZOOM_MEETING_DURATION=1800 ./scheduler.sh run
 
-    # Schedule for specific meeting time (starts 2 min early)
+    # Schedule for 2pm daily
+    ZOOM_MEETING_URL="..." ./scheduler.sh schedule "0 14 * * 1-5"
+
+    # Schedule for specific meeting time (starts 5 min early, runs 10 min extra)
     ./scheduler.sh schedule-once "2026-03-20 14:00" "https://zoom.us/j/..." "passcode"
 EOF
 }
@@ -80,6 +87,17 @@ run_recording() {
         exit 1
     fi
     
+    # Calculate total runtime: duration + stop buffer
+    local total_runtime=$((MEETING_DURATION + MEETING_STOP_BUFFER))
+    
+    echo "Starting recording with:"
+    echo "  Meeting: $MEETING_URL"
+    echo "  Start buffer: ${MEETING_START_BUFFER}s early"
+    echo "  Duration: ${MEETING_DURATION}s"
+    echo "  Stop buffer: ${MEETING_STOP_BUFFER}s after"
+    echo "  Total runtime: ${total_runtime}s"
+    echo ""
+    
     # Start container if not running
     if ! docker ps | grep -q "$CONTAINER_NAME"; then
         start_container
@@ -94,10 +112,10 @@ run_recording() {
         -d "{\"meeting_url\": \"$MEETING_URL\", \"password\": \"$MEETING_PASSWORD\"}" | jq .
     
     echo "Recording started. Access VNC at localhost:${VNC_PORT} to verify."
-    echo "Recording will run for ${MEETING_DURATION}s (or until stopped)"
+    echo "Recording will run for ${total_runtime}s (duration + stop buffer)"
     
-    # Run in background, will auto-stop after duration
-    sleep "$MEETING_DURATION"
+    # Run in background, will auto-stop after total_runtime
+    sleep "$total_runtime"
     
     curl -s -X POST "http://localhost:${API_PORT}/stop-recording" | jq .
     echo "Recording stopped. Check $RECORDINGS_DIR for output."
@@ -128,20 +146,30 @@ schedule_meeting() {
 schedule_once() {
     local start_time="$1"  # "2026-03-20 14:00"
     local meeting_url="$2"
-    local password="$3"
+    local password="${3:-}"
     
-    # Convert to cron (start 2 min early)
+    # Convert to cron (start early based on MEETING_START_BUFFER)
     local start_date=$(date -d "$start_time" +%Y-%m-%d 2>/dev/null || date -d "@$start_time" +%Y-%m-%d 2>/dev/null)
     local start_hour=$(date -d "$start_time" +%H 2>/dev/null)
     local start_min=$(date -d "$start_time" +%M 2>/dev/null)
     
-    # Adjust to 2 min early
-    local early_min=$((start_min - 2))
+    # Adjust to start early (default 5 min)
+    local early_seconds=$((MEETING_START_BUFFER))
+    local early_min=$((start_min - (early_seconds / 60)))
     local early_hour=$start_hour
-    if [ $early_min -lt 0 ]; then
+    
+    # Handle minute underflow
+    while [ $early_min -lt 0 ]; do
         early_min=$((early_min + 60))
         early_hour=$((early_hour - 1))
+    done
+    if [ $early_hour -lt 0 ]; then
+        early_hour=$((early_hour + 24))
     fi
+    
+    # Pad with leading zeros
+    early_min=$(printf "%02d" $early_min)
+    early_hour=$(printf "%02d" $early_hour)
     
     MEETING_URL="$meeting_url"
     MEETING_PASSWORD="$password"
@@ -180,7 +208,9 @@ EOF
     systemctl enable zoom-recorder.timer
     systemctl start zoom-recorder.timer
     
-    echo "Scheduled for $start_time (starting at ${early_hour}:${early_min})"
+    echo "Scheduled for $start_time"
+    echo "  Starts at: ${early_hour}:${early_min} (${MEETING_START_BUFFER}s early)"
+    echo "  Runs for: ${MEETING_DURATION}s + ${MEETING_STOP_BUFFER}s buffer = $((MEETING_DURATION + MEETING_STOP_BUFFER))s total"
 }
 
 case "${1:-}" in
